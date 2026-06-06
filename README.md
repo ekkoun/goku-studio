@@ -69,7 +69,7 @@ make migrate
 - [x] Step 2: alembic/studio/ domain chain ready
 - [x] Step 3: goku-shared package created
 - [x] Step 4: This stub repo created
-- [ ] Phase B: Symlink/copy routers/studio/ into this repo
-- [ ] Phase B: CI green with Studio-only imports
+- [x] Phase B: Symlink/copy routers/studio/ into this repo
+- [x] Phase B: CI green with Studio-only imports (6/6 boundary tests pass)
 - [ ] Phase C: Frontend `VITE_STUDIO_API_URL` points here
 - [ ] Phase D: Remove Studio files from goku-core
