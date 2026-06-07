@@ -28,7 +28,7 @@ jobs:
         run: pip install -e packages/goku-shared
 
       - name: Install Studio deps
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pytest
         working-directory: backend
 
       - name: Run boundary tests
@@ -68,7 +68,7 @@ jobs:
       - name: Install goku-shared + deps
         run: |
           pip install -e packages/goku-shared
-          pip install -r backend/requirements.txt
+          pip install -r backend/requirements.txt pytest
 
       - name: Studio boundary test (no Core runtime imports)
         run: pytest tests/test_studio_boundary.py::test_studio_routers_do_not_import_core_runtime -v
