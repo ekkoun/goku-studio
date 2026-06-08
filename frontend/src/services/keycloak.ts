@@ -2,7 +2,7 @@ import Keycloak, { type KeycloakConfig } from 'keycloak-js'
 
 const KEYCLOAK_URL =
   (import.meta.env.VITE_KEYCLOAK_URL as string | undefined) ||
-  'https://your-keycloak-server/auth/'
+  ''
 const KEYCLOAK_REALM =
   (import.meta.env.VITE_KEYCLOAK_REALM as string | undefined) || ''
 const KEYCLOAK_CLIENT_ID =
