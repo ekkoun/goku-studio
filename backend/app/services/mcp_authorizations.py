@@ -1013,9 +1013,19 @@ def _apply_mapping(
     parameter_mapping: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
     """Defaults first, then mapping ``{mcp_param: source_key}`` overlaid.
-    Missing source keys are dropped."""
+
+    When no explicit mapping is configured, fall back to **identity
+    passthrough**: forward the caller's params unchanged. The MCP capability's
+    own ``input_schema`` already defines what it accepts, so no per-capability
+    config is needed for the common case. An explicit mapping is only required
+    to RENAME a caller field to a differently-named MCP param, or to RESTRICT
+    which params may flow through (in which case unmapped source keys are
+    dropped)."""
     result: dict[str, Any] = dict(parameter_defaults or {})
-    for mcp_param, source_key in (parameter_mapping or {}).items():
+    if not parameter_mapping:
+        result.update(input_data or {})
+        return result
+    for mcp_param, source_key in parameter_mapping.items():
         if isinstance(source_key, str) and source_key in input_data:
             result[mcp_param] = input_data[source_key]
     return result
