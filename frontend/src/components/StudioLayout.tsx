@@ -206,6 +206,7 @@ export default function StudioLayout() {
         onCollapse={setCollapsed}
         breakpoint="lg"
         collapsedWidth={56}
+        trigger={null}
         style={{
           background: colorToken.colorBgContainer,
           borderRight: `1px solid ${colorToken.colorBorderSecondary}`,

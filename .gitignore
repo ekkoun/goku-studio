@@ -47,3 +47,8 @@ build/
 .pytest_cache/
 reports/
 >>>>>>> 1f8749159addca72722fdb94d3bf713a82b78b50
+
+# Runtime artifacts
+.studio.pids
+backend/app/schemas.backup
+STUDIO_HANDOFF.md
