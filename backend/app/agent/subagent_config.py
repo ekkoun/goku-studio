@@ -16,6 +16,15 @@ SUBAGENT_TYPES = {
         "prompt_suffix": "You are an explorer (research) sub-agent. You can ONLY READ information — do not modify any files. Gather the requested information and return a concise summary.",
         "default_model": None,
     },
+    "knowledge_agent": {
+        "tools": ["file_read","file_write","file_list","file_glob","grep_search","knowledge_search","memory_search","web_search","web_fetch","http_request","todo_write","code_execute","analyze_image"] + _A2A_TOOLS,
+        "max_steps": 30,
+        "icon": "DeploymentUnitOutlined",
+        "color": "#7c3aed",
+        "label": "知识/技能管理Agent",
+        "prompt_suffix": "You are a knowledge/skills management sub-agent. Discover, search, audit, and help author knowledge and Skill files, and recommend skill configurations for agents. Read and reason over the skills library; never fabricate skills or claim completion before the required updates are done.",
+        "default_model": None,
+    },
     "coder": {
         "tools": ["code_execute","file_read","file_write","file_edit","file_list","grep_search","file_glob","shell_execute","git","browser_action","todo_write","analyze_image"] + _A2A_TOOLS,
         "max_steps": 15,
