@@ -13,8 +13,25 @@ export default defineConfig({
     host: "0.0.0.0",
     port: Number(process.env.VITE_STUDIO_PORT || 5107),
     proxy: {
-      // Routes that live in Core backend (8106) — must be listed BEFORE the
-      // catch-all "/api" rule so Vite matches them first.
+      // ── Core backend (8106) routes ──────────────────────────────────────
+      // These must ALL be listed BEFORE the catch-all "/api" rule.
+
+      // Agent instance management (polling causes log spam when missing)
+      "/api/v1/agent-instances": {
+        target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
+        changeOrigin: true,
+      },
+      // Agent policies sub-resource (regex: /api/v1/agents/{id}/policies)
+      "^/api/v1/agents/[^/]+/policies": {
+        target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
+        changeOrigin: true,
+      },
+      // Stateful policies
+      "/api/v1/stateful-policies": {
+        target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
+        changeOrigin: true,
+      },
+      // Conversations, roles, departments
       "/api/v1/conversations": {
         target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
         changeOrigin: true,
@@ -27,7 +44,8 @@ export default defineConfig({
         target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
         changeOrigin: true,
       },
-      // Everything else goes to Studio backend (8107)
+
+      // ── Studio backend (8107) catch-all ─────────────────────────────────
       "/api": {
         target: process.env.VITE_STUDIO_BACKEND_URL || "http://localhost:8107",
         changeOrigin: true,
