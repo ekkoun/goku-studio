@@ -35,6 +35,13 @@ import {
   SunOutlined,
   MoonOutlined,
   MenuOutlined,
+  SettingOutlined,
+  TeamOutlined,
+  SafetyCertificateOutlined,
+  KeyOutlined,
+  AuditOutlined,
+  GlobalOutlined,
+  ClusterOutlined,
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -150,6 +157,76 @@ export default function StudioLayout() {
       icon: <FileTextOutlined />,
       label: t('layout_docs_label', '文档中心'),
       onClick: () => navigate('/docs'),
+    },
+    { type: 'divider' as const },
+    // ── 系统管理（跳转到 Core Runtime，携带 JWT） ──────────────────────────
+    isAdmin && {
+      key: 'admin',
+      icon: <SettingOutlined />,
+      label: '系统管理',
+      children: [
+        hasPermission('system.config.write') && {
+          key: 'rt:/system/config',
+          icon: <SettingOutlined />,
+          label: '系统设置',
+          onClick: () => goToRuntime('/system/config', token, refreshToken),
+        },
+        hasPermission('system.config.write') && {
+          key: 'rt:/system/connectors',
+          icon: <MessageOutlined />,
+          label: '渠道接入配置',
+          onClick: () => goToRuntime('/system/connectors', token, refreshToken),
+        },
+        hasPermission('system.config.write') && {
+          key: 'rt:/system/api-keys',
+          icon: <KeyOutlined />,
+          label: '开放 API Keys',
+          onClick: () => goToRuntime('/system/api-keys', token, refreshToken),
+        },
+        {
+          key: 'rt:/org',
+          icon: <ClusterOutlined />,
+          label: '组织架构',
+          onClick: () => goToRuntime('/org', token, refreshToken),
+        },
+        {
+          key: 'iam',
+          icon: <TeamOutlined />,
+          label: '用户与访问管理',
+          children: [
+            hasPermission('users.read') && {
+              key: 'rt:/users',
+              icon: <UserOutlined />,
+              label: '用户管理',
+              onClick: () => goToRuntime('/users', token, refreshToken),
+            },
+            hasPermission('roles.read') && {
+              key: 'rt:/roles',
+              icon: <SafetyCertificateOutlined />,
+              label: '角色管理',
+              onClick: () => goToRuntime('/roles', token, refreshToken),
+            },
+            {
+              key: 'rt:/admin/sso',
+              icon: <GlobalOutlined />,
+              label: '企业 SSO',
+              onClick: () => goToRuntime('/admin/sso', token, refreshToken),
+            },
+          ].filter(Boolean),
+        },
+        {
+          key: 'rt:/tenants',
+          icon: <ApartmentOutlined />,
+          label: '租户管理',
+          onClick: () => goToRuntime('/tenants', token, refreshToken),
+        },
+        hasPermission('audit.logs.read') && {
+          key: 'rt:/audit/logs',
+          icon: <AuditOutlined />,
+          label: '审计日志',
+          onClick: () => goToRuntime('/audit/logs', token, refreshToken),
+        },
+      ].filter(Boolean),
     },
   ].filter(Boolean) as any[]
 
