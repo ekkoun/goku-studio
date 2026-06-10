@@ -40,3 +40,7 @@ httpx>=0.26
 python-jose[cryptography]>=3.3
 passlib[bcrypt]>=1.7
 mcp>=1.27.2
+
+# Runtime dependencies (required at startup but not pulled in transitively)
+email-validator>=2.0,<3    # Pydantic EmailStr validation
+slowapi>=0.1.9,<1          # Rate limiting (app/limiter.py)
