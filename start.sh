@@ -82,21 +82,24 @@ fi
 
 # ── load environment ──────────────────────────────────────────────────────────
 
-if [ -f "$DIR/.env" ]; then
-  set -a; . "$DIR/.env"; set +a
-fi
+# Load .env — prefer backend/.env, fall back to root .env
 if [ -f "$DIR/backend/.env" ]; then
   set -a; . "$DIR/backend/.env"; set +a
+elif [ -f "$DIR/.env" ]; then
+  set -a; . "$DIR/.env"; set +a
 fi
 
-# Activate venv if present
-if [ -d "$DIR/.venv" ]; then
-  # shellcheck disable=SC1091
-  source "$DIR/.venv/bin/activate"
-elif [ -d "$DIR/backend/.venv" ]; then
-  # shellcheck disable=SC1091
-  source "$DIR/backend/.venv/bin/activate"
+# Resolve venv — prefer backend/.venv, fall back to root .venv
+if [ -d "$DIR/backend/.venv" ]; then
+  VENV="$DIR/backend/.venv"
+elif [ -d "$DIR/.venv" ]; then
+  VENV="$DIR/.venv"
+else
+  echo "❌ No .venv found — run: python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt" >&2
+  exit 1
 fi
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"
 
 BACKEND_PORT="${VITE_STUDIO_BACKEND_PORT:-8107}"
 FRONTEND_PORT="${VITE_STUDIO_PORT:-5107}"
