@@ -72,6 +72,26 @@ def register_tool(tool_data: schemas.ToolRegister, db: Session = Depends(get_db)
     return {"tool_id": tool.id, "status": "registered"}
 
 
+@router.delete("/{tool_name}", status_code=204)
+def delete_tool(tool_name: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Delete a non-builtin tool. Builtin tools (in registry) cannot be deleted."""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin required")
+    try:
+        registry = get_tool_registry()
+        if registry.get(tool_name):
+            raise HTTPException(status_code=400, detail="Built-in tools cannot be deleted")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    tool = db.query(models.Tool).filter(models.Tool.name == tool_name).first()
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+    db.delete(tool)
+    db.commit()
+
+
 @router.post("/{tool_name}/execute", response_model=schemas.ToolResponse)
 def execute_tool(tool_name: str, execute_data: schemas.ToolExecute, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     from app.services import dlp, audit, sandbox as sandbox_service
