@@ -44,6 +44,15 @@ export default defineConfig({
         target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
         changeOrigin: true,
       },
+      // Agent avatars: /icons static mount and uploaded figures both live on Core
+      "/icons": {
+        target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
+        changeOrigin: true,
+      },
+      "/api/v1/uploads": {
+        target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
+        changeOrigin: true,
+      },
 
       // ── Studio backend (8107) catch-all ─────────────────────────────────
       "/api": {
