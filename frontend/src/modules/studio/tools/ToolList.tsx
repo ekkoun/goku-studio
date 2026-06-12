@@ -16,6 +16,7 @@ import {
   Form,
   Select,
   message,
+  Popconfirm,
 } from 'antd'
 import {
   ToolOutlined,
@@ -24,6 +25,7 @@ import {
   PlayCircleOutlined,
   SafetyOutlined,
   CodeOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import { toolApi } from '@/api'
 import { useTranslation } from 'react-i18next'
@@ -44,6 +46,7 @@ const ToolList: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [registering, setRegistering] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [deletingTool, setDeletingTool] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => {
@@ -95,6 +98,19 @@ const ToolList: React.FC = () => {
       message.error(t('tool_list_add_failure'))
     } finally {
       setRegistering(false)
+    }
+  }
+
+  const handleDeleteTool = async (toolName: string) => {
+    setDeletingTool(toolName)
+    try {
+      await toolApi.delete(toolName)
+      message.success(t('tool_list_delete_success', '工具已删除'))
+      await fetchTools()
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || t('tool_list_delete_failure', '删除失败'))
+    } finally {
+      setDeletingTool(null)
     }
   }
 
@@ -152,12 +168,31 @@ const ToolList: React.FC = () => {
       title: 'Action',
       key: 'action',
       width: 150,
-      render: (_: any, record: any) => (
-        <Space>
-          <Button type="text" icon={<CodeOutlined />} onClick={() => navigate(`/tools/${record.name}`)} />
-          <Button type="text" icon={<PlayCircleOutlined />} />
-        </Space>
-      ),
+      render: (_: any, record: any) => {
+        const isBuiltin = !record.id
+        return (
+          <Space>
+            <Button type="text" icon={<CodeOutlined />} onClick={() => navigate(`/tools/${record.name}`)} />
+            <Button type="text" icon={<PlayCircleOutlined />} />
+            <Popconfirm
+              title={t('tool_list_delete_confirm', '确定要删除此工具吗？')}
+              onConfirm={() => handleDeleteTool(record.name)}
+              okText={t('common_confirm', '确定')}
+              cancelText={t('common_cancel', 'Cancel')}
+              disabled={isBuiltin}
+            >
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                loading={deletingTool === record.name}
+                disabled={isBuiltin}
+                title={isBuiltin ? t('tool_list_delete_builtin_tip', '内置工具无法删除') : undefined}
+              />
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 

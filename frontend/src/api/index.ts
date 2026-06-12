@@ -207,6 +207,7 @@ export const taskApi = {
 export const toolApi = {
   list: () => api.get<{ tools: any[] }>('/tools'),
   get: (name: string) => api.get<any>(`/tools/${name}`),
+  delete: (name: string) => api.delete(`/tools/${name}`),
   register: (data: { name: string; description: string; handler: string; schema: object; permission_level: number }) =>
     api.post<{ tool_id: string; status: string }>('/tools', data),
   execute: (name: string, data: { parameters: object; timeout?: number; approval_token?: string }) =>
