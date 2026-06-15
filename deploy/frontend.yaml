@@ -1,0 +1,24 @@
+---
+kind: "Deployment"
+apiVersion: "apps/v1"
+metadata: 
+  name: "goku-studio-frontend"
+  namespace: "aios"
+  labels: 
+    app: "goku-studio-frontend"
+spec: 
+  replicas: 0
+  selector: 
+    matchLabels: 
+      app: "goku-studio-frontend"
+  template: 
+    metadata: 
+      creationTimestamp: null
+      labels: 
+        app: "goku-studio-frontend"
+    spec: 
+      containers: 
+        - 
+          name: "goku-studio-frontend"
+          image: "275106820702.dkr.ecr.ap-northeast-1.amazonaws.com/cto/goku-studio:qa-202606121708-9458c6be"
+
