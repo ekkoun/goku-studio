@@ -130,7 +130,7 @@ jobs:
         id: backend_meta
         uses: docker/metadata-action@v5
         with:
-          images: gcr.io/sre-common-test-379805/aios/goku-studio
+          images: gcr.io/sre-common-test-379805/aios/goku-studio-backend
           tags: type=sha,prefix=sha-,format=short
 
       - name: Build and push backend image
@@ -186,7 +186,7 @@ jobs:
       - name: Update deployment images
         shell: bash
         env:
-          BACKEND_IMAGE: gcr.io/sre-common-test-379805/aios/goku-studio
+          BACKEND_IMAGE: gcr.io/sre-common-test-379805/aios/goku-studio-backend
           FRONTEND_IMAGE: gcr.io/sre-common-test-379805/aios/goku-studio-frontend
           IMAGE_TAG: ${{ steps.deploy_tag.outputs.tag }}
         run: |

@@ -20,5 +20,5 @@ spec:
       containers: 
         - 
           name: "goku-studio"
-          image: "gcr.io/sre-common-test-379805/aios/goku-studio:sha-e82d8db"
+          image: "gcr.io/sre-common-test-379805/aios/goku-studio-backend:sha-e82d8db"
 
