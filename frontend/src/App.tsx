@@ -33,7 +33,11 @@ import ConnectorPage from './modules/studio/connectors/ConnectorPage'
 import DocumentCenterPage from './modules/studio/docs/DocumentCenterPage'
 
 // ── Login redirect ────────────────────────────────────────────────────────────
-const RUNTIME_URL = (import.meta.env.VITE_RUNTIME_URL as string | undefined) || 'http://localhost:5106'
+const runtimeUrl = (window as any).__APP_CONFIG__?.VITE_RUNTIME_URL
+const RUNTIME_URL =
+  (runtimeUrl && runtimeUrl !== '__VITE_RUNTIME_URL__' ? runtimeUrl : undefined) ||
+  ((import.meta as any).env?.VITE_RUNTIME_URL as string | undefined) ||
+  'http://localhost:5106'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
