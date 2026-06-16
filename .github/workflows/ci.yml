@@ -159,11 +159,15 @@ jobs:
 
       - name: Resolve deployment image tag
         id: deploy_tag
-        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
-          TIMESTAMP="$(date -u +'%Y%m%d-%H%M')"
-          echo "tag=${GITHUB_REF_NAME}-${TIMESTAMP}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            TIMESTAMP="$(date -u +'%Y%m%d-%H%M')"
+            echo "tag=${GITHUB_REF_NAME}-${TIMESTAMP}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare backend image tags
         id: backend_tags
@@ -229,13 +233,15 @@ jobs:
   update-deployment:
     name: Update GitOps Manifests
     needs: build-images
-    if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+    if: github.event_name != 'pull_request' && (github.ref_type == 'branch' || github.ref_type == 'tag')
     runs-on: ubuntu-latest
     env:
       GITOPS_APP_NAME: studio
       GITOPS_YAML_REPO: xuyun-io/argocd-yaml
-      GITOPS_BACKEND_YAML_FILE: aios/qa/studio-backend.yaml
-      GITOPS_FRONTEND_YAML_FILE: aios/qa/studio-frontend.yaml
+      GITOPS_QA_BACKEND_YAML_FILE: aios/qa/studio-backend.yaml
+      GITOPS_QA_FRONTEND_YAML_FILE: aios/qa/studio-frontend.yaml
+      GITOPS_PROD_BACKEND_YAML_FILE: aios/prod/studio-backend.yaml
+      GITOPS_PROD_FRONTEND_YAML_FILE: aios/prod/studio-frontend.yaml
 
     steps:
       - name: Checkout gitops manifests
@@ -250,8 +256,16 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
         run: |
-          BACKEND_FILE="gitops-yaml/${{ env.GITOPS_BACKEND_YAML_FILE }}"
-          FRONTEND_FILE="gitops-yaml/${{ env.GITOPS_FRONTEND_YAML_FILE }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
+          else
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
+          fi
+
+          BACKEND_FILE="gitops-yaml/${GITOPS_BACKEND_YAML_FILE}"
+          FRONTEND_FILE="gitops-yaml/${GITOPS_FRONTEND_YAML_FILE}"
 
           if [ ! -f "$BACKEND_FILE" ]; then
             echo "$BACKEND_FILE not found."
@@ -268,7 +282,7 @@ jobs:
           sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${BACKEND_IMAGE}"'"|' "$BACKEND_FILE"
           sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${FRONTEND_IMAGE}"'"|' "$FRONTEND_FILE"
 
-          git -C gitops-yaml diff -- "${{ env.GITOPS_BACKEND_YAML_FILE }}" "${{ env.GITOPS_FRONTEND_YAML_FILE }}"
+          git -C gitops-yaml diff -- "${GITOPS_BACKEND_YAML_FILE}" "${GITOPS_FRONTEND_YAML_FILE}"
 
       - name: Commit deployment image updates
         shell: bash
@@ -282,13 +296,23 @@ jobs:
             exit 0
           fi
 
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            GITOPS_ENV="prod"
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
+          else
+            GITOPS_ENV="qa"
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${{ env.GITOPS_BACKEND_YAML_FILE }}" "${{ env.GITOPS_FRONTEND_YAML_FILE }}"
+          git add "${GITOPS_BACKEND_YAML_FILE}" "${GITOPS_FRONTEND_YAML_FILE}"
           TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           SOURCE_COMMIT="$(echo '${{ github.sha }}' | cut -c1-7)"
           git commit \
-            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} images to ${IMAGE_TAG}" \
+            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} ${GITOPS_ENV} images to ${IMAGE_TAG}" \
             -m "Time: ${TIMESTAMP}" \
             -m "Source commit message:" \
             -m "${SOURCE_COMMIT_MSG}" \
