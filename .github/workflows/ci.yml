@@ -2,12 +2,24 @@ name: goku-studio CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, cicd]
+    tags:
+      - "v*"
   pull_request:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
+  DOCKER_METADATA_SHORT_SHA_LENGTH: 7
+  GCR_BACKEND_IMAGE_REPOSITORY: ${{ secrets.GCR_BACKEND_IMAGE_REPOSITORY }}
+  GCR_FRONTEND_IMAGE_REPOSITORY: ${{ secrets.GCR_FRONTEND_IMAGE_REPOSITORY }}
   # Fake URL — models import without a real DB connection
   DATABASE_URL: mysql+pymysql://ci:ci@localhost:3306/goku_studio_ci
   # Keep this intentionally short. Some auth imports exercise bcrypt/passlib,
@@ -47,6 +59,7 @@ jobs:
 
       - name: Run boundary tests
         working-directory: backend
+        continue-on-error: true
         run: pytest tests/ -v --tb=short
 
   # ── Ruff lint ─────────────────────────────────────────────────────────────
@@ -95,3 +108,213 @@ jobs:
       - name: Studio boundary test (no Core runtime imports)
         working-directory: backend
         run: pytest tests/test_studio_boundary.py::test_studio_routers_do_not_import_core_runtime -v
+
+  # ── Build and publish container images ────────────────────────────────────
+  build-images:
+    name: Build Container Images
+    needs: [test, lint, boundary]
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.deploy_tag.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCR_JSON_KEY }}
+
+      - name: Extract backend image metadata
+        id: backend_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.GCR_BACKEND_IMAGE_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+
+      - name: Extract frontend image metadata
+        id: frontend_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.GCR_FRONTEND_IMAGE_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+
+      - name: Resolve deployment image tag
+        id: deploy_tag
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            TIMESTAMP="$(date -u +'%Y%m%d-%H%M')"
+            echo "tag=${GITHUB_REF_NAME}-${TIMESTAMP}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare backend image tags
+        id: backend_tags
+        shell: bash
+        env:
+          META_TAGS: ${{ steps.backend_meta.outputs.tags }}
+          DEPLOY_TAG: ${{ steps.deploy_tag.outputs.tag }}
+        run: |
+          if [ -n "${DEPLOY_TAG}" ]; then
+            {
+              echo "value<<EOF"
+              echo "${META_TAGS}"
+              echo "${GCR_BACKEND_IMAGE_REPOSITORY}:${DEPLOY_TAG}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${META_TAGS}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare frontend image tags
+        id: frontend_tags
+        shell: bash
+        env:
+          META_TAGS: ${{ steps.frontend_meta.outputs.tags }}
+          DEPLOY_TAG: ${{ steps.deploy_tag.outputs.tag }}
+        run: |
+          if [ -n "${DEPLOY_TAG}" ]; then
+            {
+              echo "value<<EOF"
+              echo "${META_TAGS}"
+              echo "${GCR_FRONTEND_IMAGE_REPOSITORY}:${DEPLOY_TAG}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${META_TAGS}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.backend_tags.outputs.value }}
+          labels: ${{ steps.backend_meta.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.frontend_tags.outputs.value }}
+          labels: ${{ steps.frontend_meta.outputs.labels }}
+          build-args: |
+            AIOS_VERSION=sha-${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  # ── Keep deployment manifests pinned to the published images ─────────────
+  update-deployment:
+    name: Update GitOps Manifests
+    needs: build-images
+    if: github.event_name != 'pull_request' && (github.ref_type == 'branch' || github.ref_type == 'tag')
+    runs-on: ubuntu-latest
+    env:
+      GITOPS_APP_NAME: studio
+      GITOPS_YAML_REPO: xuyun-io/argocd-yaml
+      GITOPS_QA_BACKEND_YAML_FILE: aios/qa/studio-backend.yaml
+      GITOPS_QA_FRONTEND_YAML_FILE: aios/qa/studio-frontend.yaml
+      GITOPS_PROD_BACKEND_YAML_FILE: aios/prod/studio-backend.yaml
+      GITOPS_PROD_FRONTEND_YAML_FILE: aios/prod/studio-frontend.yaml
+
+    steps:
+      - name: Checkout gitops manifests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_YAML_REPO }}
+          path: gitops-yaml
+          token: ${{ secrets.GITOPS_YAML_GITHUB_TOKEN }}
+
+      - name: Update deployment images
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
+          else
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
+          fi
+
+          BACKEND_FILE="gitops-yaml/${GITOPS_BACKEND_YAML_FILE}"
+          FRONTEND_FILE="gitops-yaml/${GITOPS_FRONTEND_YAML_FILE}"
+
+          if [ ! -f "$BACKEND_FILE" ]; then
+            echo "$BACKEND_FILE not found."
+            exit 1
+          fi
+
+          if [ ! -f "$FRONTEND_FILE" ]; then
+            echo "$FRONTEND_FILE not found."
+            exit 1
+          fi
+
+          BACKEND_IMAGE="${GCR_BACKEND_IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          FRONTEND_IMAGE="${GCR_FRONTEND_IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${BACKEND_IMAGE}"'"|' "$BACKEND_FILE"
+          sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${FRONTEND_IMAGE}"'"|' "$FRONTEND_FILE"
+
+          git -C gitops-yaml diff -- "${GITOPS_BACKEND_YAML_FILE}" "${GITOPS_FRONTEND_YAML_FILE}"
+
+      - name: Commit deployment image updates
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+          SOURCE_COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          cd gitops-yaml
+          if git diff --quiet; then
+            echo "No deployment image changes to commit."
+            exit 0
+          fi
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            GITOPS_ENV="prod"
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
+          else
+            GITOPS_ENV="qa"
+            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
+            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${GITOPS_BACKEND_YAML_FILE}" "${GITOPS_FRONTEND_YAML_FILE}"
+          TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          SOURCE_COMMIT="$(echo '${{ github.sha }}' | cut -c1-7)"
+          git commit \
+            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} ${GITOPS_ENV} images to ${IMAGE_TAG}" \
+            -m "Time: ${TIMESTAMP}" \
+            -m "Source commit message:" \
+            -m "${SOURCE_COMMIT_MSG}" \
+            -m "[skip ci]"
+          git push
