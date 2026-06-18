@@ -3,6 +3,11 @@ FROM node:20-alpine AS build
 ARG AIOS_VERSION=dev
 ENV VITE_APP_VERSION=${AIOS_VERSION}
 
+# URL of the goku-core (runtime) frontend — Studio redirects here for login.
+# Pass at build time: docker build --build-arg VITE_RUNTIME_URL=https://core.example.com
+ARG VITE_RUNTIME_URL=http://localhost:5106
+ENV VITE_RUNTIME_URL=${VITE_RUNTIME_URL}
+
 WORKDIR /app
 COPY package.json ./
 RUN npm install --no-audit --no-fund
