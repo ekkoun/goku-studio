@@ -229,6 +229,18 @@ def _slugify_filename(text: str) -> str:
     return safe or "agent"
 
 
+def _make_unique_agent_slug(db: Session, model, name: str, agent_id: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-") or agent_id[:8]
+    base = base[:100].strip("-") or agent_id[:8]
+    candidate = base
+    counter = 1
+    while db.query(model).filter(model.slug == candidate).first():
+        suffix = agent_id[:8] if counter == 1 else f"{agent_id[:8]}-{counter}"
+        candidate = f"{base[: max(1, 99 - len(suffix))]}-{suffix}".strip("-")
+        counter += 1
+    return candidate
+
+
 def _attachment_disposition(filename: str) -> str:
     fallback = re.sub(r"[^A-Za-z0-9._-]+", "-", filename).strip("-_.") or "agent.agent.json"
     encoded = quote(filename, safe="")
@@ -694,11 +706,8 @@ def create_agent(
 
     # Generate slug from name (used as seed key — NOT used for icon filenames any more)
     new_agent_id = str(uuid.uuid4())
-    agent_slug = re.sub(r"[^a-z0-9]+", "-", data.name.lower()).strip("-") or new_agent_id[:8]
-    # Ensure slug is unique in the DB
     from app.models import AgentDefinition as _AD
-    if db.query(_AD).filter(_AD.slug == agent_slug).first():
-        agent_slug = f"{agent_slug}-{new_agent_id[:8]}"
+    agent_slug = _make_unique_agent_slug(db, _AD, data.name, new_agent_id)
 
     # Persist uploaded icon to git-tracked /icons/ dir so it survives git pull
     persisted_figure_url = _persist_figure_to_icons(data.figure_url, agent_slug)
@@ -1056,8 +1065,11 @@ def import_agent(
         figure_url = None
 
     now = datetime.utcnow()
+    new_agent_id = str(uuid.uuid4())
+    agent_slug = _make_unique_agent_slug(db, AgentDefinition, final_name, new_agent_id)
     agent = AgentDefinition(
-        id=str(uuid.uuid4()),
+        id=new_agent_id,
+        slug=agent_slug,
         name=final_name,
         description=agent_data.get("description"),
         agent_type=agent_type,
@@ -1378,4 +1390,3 @@ def _serialize(agent) -> dict:
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "updated_at": agent.updated_at.isoformat() if agent.updated_at else None,
     }
-
