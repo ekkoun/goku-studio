@@ -206,4 +206,24 @@ def approve_skill(skill_id: str, db: Session = Depends(get_db), user=Depends(get
     s.approval_status = "approved"
     s.updated_at      = datetime.utcnow()
     db.commit()
-    return {"approved": True, "id": skill_id, "name": s.name}
+
+    # Plan A (option A): an auto-extracted skill lives in the DB as a *candidate*
+    # until approved. On approval, promote it to the canonical git skills repo so
+    # the goku-core runtime can pick it up. Best-effort — surface git errors but
+    # keep the DB approval (it can be re-pushed).
+    promoted = None
+    try:
+        from app.services import skills_repo
+        if skills_repo.is_enabled():
+            sid = skills_repo.auto_skill_id(s.name)
+            promoted = skills_repo.write_skill(
+                sid,
+                {"SKILL.md": skills_repo.build_skill_md(s)},
+                message=f"approve auto-skill: {s.name} (by {getattr(user, 'username', 'studio')})",
+            )
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).error("Promote auto-skill '%s' to git failed: %s", s.name, e)
+        promoted = {"ok": False, "error": str(e)[:200]}
+
+    return {"approved": True, "id": skill_id, "name": s.name, "promoted": promoted}

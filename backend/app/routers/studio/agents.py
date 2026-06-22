@@ -222,6 +222,16 @@ def _skills_root() -> Path:
     every agent's skills on save (see 海报设计师 incident, 2026-06-10).
     """
     import os
+    # Plan A: when a canonical git skills repo is configured, read from the
+    # writable clone Studio maintains (it is the sole committer). Falls through to
+    # the legacy sibling/SKILLS_ROOT path when git is disabled.
+    try:
+        from app.services import skills_repo
+        clone = skills_repo.clone_path_or_none()
+        if clone is not None:
+            return clone
+    except Exception:
+        pass
     override = os.environ.get("SKILLS_ROOT")
     if override:
         return Path(override)
