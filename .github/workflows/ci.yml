@@ -256,33 +256,37 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
         run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
-            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
-          else
-            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
-            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
-          fi
-
-          BACKEND_FILE="gitops-yaml/${GITOPS_BACKEND_YAML_FILE}"
-          FRONTEND_FILE="gitops-yaml/${GITOPS_FRONTEND_YAML_FILE}"
-
-          if [ ! -f "$BACKEND_FILE" ]; then
-            echo "$BACKEND_FILE not found."
-            exit 1
-          fi
-
-          if [ ! -f "$FRONTEND_FILE" ]; then
-            echo "$FRONTEND_FILE not found."
-            exit 1
-          fi
-
           BACKEND_IMAGE="${GCR_BACKEND_IMAGE_REPOSITORY}:${IMAGE_TAG}"
           FRONTEND_IMAGE="${GCR_FRONTEND_IMAGE_REPOSITORY}:${IMAGE_TAG}"
-          sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${BACKEND_IMAGE}"'"|' "$BACKEND_FILE"
-          sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${FRONTEND_IMAGE}"'"|' "$FRONTEND_FILE"
+          BACKEND_YAML_FILES=(
+            "${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
+            "${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
+          )
+          FRONTEND_YAML_FILES=(
+            "${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
+            "${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
+          )
 
-          git -C gitops-yaml diff -- "${GITOPS_BACKEND_YAML_FILE}" "${GITOPS_FRONTEND_YAML_FILE}"
+          for yaml_file in "${BACKEND_YAML_FILES[@]}" "${FRONTEND_YAML_FILES[@]}"; do
+            if [ ! -f "gitops-yaml/${yaml_file}" ]; then
+              echo "gitops-yaml/${yaml_file} not found."
+              exit 1
+            fi
+          done
+
+          for yaml_file in "${BACKEND_YAML_FILES[@]}"; do
+            sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${BACKEND_IMAGE}"'"|' "gitops-yaml/${yaml_file}"
+          done
+
+          for yaml_file in "${FRONTEND_YAML_FILES[@]}"; do
+            sed -i -E '0,/^([[:space:]]*image:[[:space:]]*)"?[^"]*"?[[:space:]]*$/s||\1"'"${FRONTEND_IMAGE}"'"|' "gitops-yaml/${yaml_file}"
+          done
+
+          git -C gitops-yaml diff -- \
+            "${{ env.GITOPS_QA_BACKEND_YAML_FILE }}" \
+            "${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}" \
+            "${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}" \
+            "${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
 
       - name: Commit deployment image updates
         shell: bash
@@ -296,23 +300,17 @@ jobs:
             exit 0
           fi
 
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            GITOPS_ENV="prod"
-            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}"
-            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
-          else
-            GITOPS_ENV="qa"
-            GITOPS_BACKEND_YAML_FILE="${{ env.GITOPS_QA_BACKEND_YAML_FILE }}"
-            GITOPS_FRONTEND_YAML_FILE="${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}"
-          fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${GITOPS_BACKEND_YAML_FILE}" "${GITOPS_FRONTEND_YAML_FILE}"
+          git add \
+            "${{ env.GITOPS_QA_BACKEND_YAML_FILE }}" \
+            "${{ env.GITOPS_QA_FRONTEND_YAML_FILE }}" \
+            "${{ env.GITOPS_PROD_BACKEND_YAML_FILE }}" \
+            "${{ env.GITOPS_PROD_FRONTEND_YAML_FILE }}"
           TIMESTAMP="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           SOURCE_COMMIT="$(echo '${{ github.sha }}' | cut -c1-7)"
           git commit \
-            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} ${GITOPS_ENV} images to ${IMAGE_TAG}" \
+            -m "[${{ github.repository }}/${{ github.ref_name }}@${SOURCE_COMMIT}](${{ github.actor }}): Update ${{ env.GITOPS_APP_NAME }} qa/prod images to ${IMAGE_TAG}" \
             -m "Time: ${TIMESTAMP}" \
             -m "Source commit message:" \
             -m "${SOURCE_COMMIT_MSG}" \
