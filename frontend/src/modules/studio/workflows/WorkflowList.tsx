@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Table,
@@ -19,8 +19,11 @@ import {
   HistoryOutlined,
   MonitorOutlined,
   EditOutlined,
+  DownloadOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { workflowApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { useTranslation } from 'react-i18next'
 import { fmtUtc, fmtUtcSec } from '@/utils/time'
 
@@ -40,6 +43,8 @@ const WorkflowList: React.FC = () => {
   const navigate = useNavigate()
   const [workflows, setWorkflows] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   // Execution history modal state
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
@@ -81,6 +86,66 @@ const WorkflowList: React.FC = () => {
       fetchWorkflows()
     } catch {
       message.error(t('workflow_list_delete_failure'))
+    }
+  }
+
+  const handleExport = async (record: any) => {
+    const token = useAuthStore.getState().token || ''
+    try {
+      const response = await fetch(`/api/v1/workflows/${record.id}/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload?.detail || 'export failed')
+      }
+      const blob = await response.blob()
+      const safeName = (record.name || 'workflow').replace(/[/\s]+/g, '_')
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${safeName}.workflow.json`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+      message.success(t('workflow_list_export_success'))
+    } catch (error: any) {
+      message.error(error?.message || t('workflow_list_export_failure'))
+    }
+  }
+
+  const handleImport = async (file?: File) => {
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      message.error(t('workflow_list_import_format_error'))
+      return
+    }
+    const token = useAuthStore.getState().token || ''
+    const formData = new FormData()
+    formData.append('file', file)
+    setImporting(true)
+    try {
+      const response = await fetch('/api/v1/workflows/import', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(payload?.detail || 'import failed')
+      }
+      if (payload.agent_missing) {
+        message.warning(t('workflow_list_import_agent_missing'))
+      } else {
+        message.success(`${t('workflow_list_import_success')}：${payload.name || file.name}`)
+      }
+      fetchWorkflows()
+    } catch (error: any) {
+      message.error(error?.message || t('workflow_list_import_failure'))
+    } finally {
+      setImporting(false)
+      if (importInputRef.current) importInputRef.current.value = ''
     }
   }
 
@@ -175,7 +240,7 @@ const WorkflowList: React.FC = () => {
     {
       title: t('workflow_list_action_column'),
       key: 'action',
-      width: 260,
+      width: 300,
       render: (_: any, record: any) => (
         <Space>
           <Tooltip title={t('workflow_list_edit_button')}>
@@ -205,6 +270,13 @@ const WorkflowList: React.FC = () => {
               {t('workflow_list_exec_history_button')}
             </Button>
           </Tooltip>
+          <Tooltip title={t('workflow_list_export_button')}>
+            <Button
+              icon={<DownloadOutlined />}
+              size="small"
+              onClick={() => handleExport(record)}
+            />
+          </Tooltip>
           <Tooltip title={t('workflow_list_delete_button')}>
             <Popconfirm
               title={t('workflow_list_delete_confirm')}
@@ -225,13 +297,29 @@ const WorkflowList: React.FC = () => {
       <Title level={2}>{t('workflow_list_page_title')}</Title>
       <Card
         extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate('/workflows/designer')}
-          >
-            {t('workflow_list_create_button')}
-          </Button>
+          <Space>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              style={{ display: 'none' }}
+              onChange={(e) => handleImport(e.target.files?.[0] || undefined)}
+            />
+            <Button
+              icon={<UploadOutlined />}
+              loading={importing}
+              onClick={() => importInputRef.current?.click()}
+            >
+              {t('workflow_list_import_button')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => navigate('/workflows/designer')}
+            >
+              {t('workflow_list_create_button')}
+            </Button>
+          </Space>
         }
       >
         <Table

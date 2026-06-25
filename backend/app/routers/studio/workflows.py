@@ -1,8 +1,12 @@
 import uuid
+import json
 import threading
 from datetime import datetime
+from io import BytesIO
+from urllib.parse import quote
 import hashlib
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 from app.db import get_db
@@ -206,6 +210,137 @@ def get_workflow(
         "variables": workflow.variables,
         "version": workflow.version,
         "created_at": workflow.created_at,
+    }
+
+
+def _build_workflow_export_payload(workflow, db: Session) -> dict:
+    """Build a portable, environment-agnostic workflow definition.
+
+    The DB stores ``agent_id`` as a per-environment UUID, which is meaningless in
+    another environment. Export resolves it to the agent's stable ``slug`` so import
+    can re-bind to the matching agent in the target environment (fixes the
+    cross-env agent_id mismatch that breaks ``report_recipients`` injection).
+    Webhook secrets are masked by ``_sanitize_workflow_triggers`` — they are not
+    exported and must be reconfigured after import.
+    """
+    agent_slug = None
+    agent_id = getattr(workflow, "agent_id", None)
+    if agent_id:
+        agent = db.query(models.AgentDefinition).filter(
+            models.AgentDefinition.id == agent_id
+        ).first()
+        if agent:
+            agent_slug = agent.slug
+    return {
+        "schema": "aios.workflow-export",
+        "version": "1.0",
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "workflow": {
+            "name": workflow.name,
+            "description": workflow.description,
+            "dag": workflow.dag,
+            "triggers": _sanitize_workflow_triggers(workflow.triggers),
+            "variables": workflow.variables,
+            "agent_slug": agent_slug,
+        },
+    }
+
+
+@router.get("/{workflow_id}/export")
+def export_workflow(
+    workflow_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Export a workflow as a portable JSON file (DAG + agent slug, no secrets)."""
+    workflow = _workflow_query(db).filter(models.Workflow.id == workflow_id).first()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    payload = _build_workflow_export_payload(workflow, db)
+    auth.log_audit_action(db, current_user.id, "export_workflow", "workflow", workflow.id, {"name": workflow.name})
+    safe_name = (workflow.name or "workflow").replace("/", "_").replace(" ", "_")
+    filename = f"{safe_name}.workflow.json"
+    content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    # RFC 5987: ASCII fallback + UTF-8 filename* so non-latin-1 names (e.g. Chinese) don't break the latin-1 header.
+    disposition = "attachment; filename=\"workflow.json\"; filename*=UTF-8''" + quote(filename)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/json",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.post("/import", status_code=201)
+def import_workflow(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Create a workflow from an exported JSON file.
+
+    Always creates a NEW workflow (fresh id); a name collision is suffixed with
+    " (Imported)". ``agent_slug`` is resolved to this environment's agent id so the
+    workflow binds to the local agent — this is what makes export/import portable.
+    """
+    try:
+        raw = file.file.read()
+        payload = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workflow file: not valid JSON") from None
+
+    if payload.get("schema") != "aios.workflow-export":
+        raise HTTPException(status_code=400, detail="Unrecognized file: expected schema 'aios.workflow-export'")
+
+    wf_data = payload.get("workflow")
+    if not isinstance(wf_data, dict) or not wf_data.get("dag"):
+        raise HTTPException(status_code=400, detail="Import payload is missing workflow.dag")
+
+    name = (wf_data.get("name") or "Imported Workflow").strip()
+    if db.query(models.Workflow).filter(models.Workflow.name == name).first():
+        name = f"{name} (Imported)"
+
+    # Resolve agent_slug → this environment's agent id (portable re-binding).
+    agent_id = None
+    agent_slug = wf_data.get("agent_slug")
+    agent_missing = False
+    if agent_slug:
+        agent = db.query(models.AgentDefinition).filter(
+            models.AgentDefinition.slug == agent_slug
+        ).first()
+        if agent:
+            agent_id = agent.id
+        else:
+            agent_missing = True
+
+    workflow_id = str(uuid.uuid4())
+    created_at = datetime.utcnow()
+    db.execute(
+        models.Workflow.__table__.insert().values(
+            id=workflow_id,
+            name=name,
+            description=wf_data.get("description"),
+            dag=wf_data["dag"],
+            triggers=_prepare_workflow_triggers(wf_data.get("triggers") or []),
+            variables=wf_data.get("variables") or {},
+            version="1.0.0",
+            agent_id=agent_id,
+            created_at=created_at,
+        )
+    )
+    db.commit()
+    auth.log_audit_action(db, current_user.id, "import_workflow", "workflow", workflow_id, {"name": name, "source_file": file.filename})
+    try:
+        from app.tasks.scheduler import reload_schedules
+        reload_schedules()
+    except Exception:
+        pass
+    return {
+        "workflow_id": workflow_id,
+        "name": name,
+        "agent_slug": agent_slug,
+        "agent_bound": agent_id is not None,
+        "agent_missing": agent_missing,
+        "imported_at": created_at.isoformat() + "Z",
     }
 
 
