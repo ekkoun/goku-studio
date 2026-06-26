@@ -71,3 +71,9 @@ def setup_logging(level: str | None = None) -> None:
         lg.handlers = []
         lg.propagate = True
         lg.setLevel(log_level)
+
+
+# Configure JSON logging as an import side effect, so callers only need to
+# import this module (before anything that logs) — no separate call statement
+# wedged between imports, which keeps import blocks E402-clean.
+setup_logging()
