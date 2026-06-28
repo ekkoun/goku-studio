@@ -7,7 +7,7 @@ from urllib.parse import quote
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
 from app.db import get_db
 from app import models, schemas, auth
@@ -506,7 +506,17 @@ def delete_workflow(
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     auth.log_audit_action(db, current_user.id, "delete_workflow", "workflow", workflow.id, {"name": workflow.name})
-    # Delete child execution records first to avoid FK constraint violation
+    # Delete child rows bottom-up to avoid FK violations (FKs are NO ACTION, not CASCADE):
+    # node_executions → executions → workflow. Skipping node_executions raises IntegrityError 1451.
+    db.execute(
+        models.WorkflowNodeExecution.__table__.delete().where(
+            models.WorkflowNodeExecution.execution_id.in_(
+                select(models.WorkflowExecution.id).where(
+                    models.WorkflowExecution.workflow_id == workflow_id
+                )
+            )
+        )
+    )
     db.execute(
         models.WorkflowExecution.__table__.delete().where(
             models.WorkflowExecution.workflow_id == workflow_id

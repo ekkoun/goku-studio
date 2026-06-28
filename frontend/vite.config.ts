@@ -60,6 +60,12 @@ export default defineConfig({
         target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
         changeOrigin: true,
       },
+      // Workflow EXECUTION needs the engine (app.services.workflow), which only Core has —
+      // the Studio backend is CRUD-only. Route execution to Core; workflow CRUD stays on Studio.
+      "^/api/v1/workflows/[^/]+/execute": {
+        target: process.env.VITE_CORE_BACKEND_URL || "http://localhost:8106",
+        changeOrigin: true,
+      },
 
       // ── Studio backend (8107) catch-all ─────────────────────────────────
       "/api": {
